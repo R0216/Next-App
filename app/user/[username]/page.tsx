@@ -38,7 +38,7 @@ interface PageProps {
 export default async function UserDetailPage({ params }: PageProps) {
   const { username } = await params;
   
-  const GITHUB_TOKEN = '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';
+  const GITHUB_TOKEN = process.env.GITHUB_TOKEN
 
   const [profileRes, reposRes, eventsRes] = await Promise.all([
     fetch(`https://api.github.com/users/${username}`, { cache: 'no-store', headers: GITHUB_TOKEN ? { 'Authorization': `token ${GITHUB_TOKEN}` } : {} }),
