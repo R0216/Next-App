@@ -21,14 +21,16 @@ interface GitHubEvent {
   id: string;
   type: string;
   created_at: string;
+  repo: {
+    id: number;
+    name: string;
+    url: string;
+  };
   payload: {
     size?: number;
     distinct_size?: number;
-    commits?: Array<{
-      sha: string;
-      message: string;
-    }>;
-  };
+    commits?: Record<string, unknown>[];
+  }; 
 }
 
 interface PageProps {
@@ -38,7 +40,8 @@ interface PageProps {
 export default async function UserDetailPage({ params }: PageProps) {
   const { username } = await params;
   
-  const GITHUB_TOKEN = process.env.GITHUB_TOKEN
+  // 💡 安全対策：生トークンではなく環境変数から読み込む形にして、再ブロックを完全に防ぎます
+  const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 
   const [profileRes, reposRes, eventsRes] = await Promise.all([
     fetch(`https://api.github.com/users/${username}`, { cache: 'no-store', headers: GITHUB_TOKEN ? { 'Authorization': `token ${GITHUB_TOKEN}` } : {} }),
@@ -102,37 +105,100 @@ export default async function UserDetailPage({ params }: PageProps) {
   };
 
   // ==========================================
-  // 📈 コミット数の集計ロジック（最終判定版）
+  // 📈 コミット数 ＆ 🕒 活動時間 ＆ 🔥 メインプロジェクトの集計
   // ==========================================
   let weeklyCommits = 0;
   let monthlyCommits = 0;
   let totalTrackedCommits = 0;
 
+  const timeSlots = Array(12).fill(0);
+  const repoCommitCounts: { [key: string]: number } = {};
+  
+  let latestRepoName = "";
+  
+  // 💡 解決策：明示的に Date | null 型を指定することで「never型エラー」を完全に消し去ります
+  let latestCommitDate: Date | null = null; 
+
   const now = new Date();
   const oneWeekAgo = new Date(now.getTime() - 8 * 24 * 60 * 60 * 1000); 
 
   eventsData.forEach((event) => {
-    if (event.type === "PushEvent" && event.payload) {
-      // 💡 commits配列の長さ、またはsize、distinct_sizeから確実に件数を取る
+    if (event.type === "PushEvent") {
       const commitCount = 
-        (event.payload.commits && event.payload.commits.length) || 
-        event.payload.distinct_size || 
-        event.payload.size || 
-        0;
+        (event.payload && event.payload.commits?.length) || 
+        (event.payload && event.payload.distinct_size) || 
+        (event.payload && event.payload.size) || 
+        1;
 
       const eventDate = new Date(event.created_at);
 
+      // ① 基礎コミット数の集計
       totalTrackedCommits += commitCount;
-
-      if (eventDate >= oneWeekAgo) {
-        weeklyCommits += commitCount;
-      }
-
+      if (eventDate >= oneWeekAgo) weeklyCommits += commitCount;
       if (eventDate.getFullYear() === now.getFullYear() && eventDate.getMonth() === now.getMonth()) {
         monthlyCommits += commitCount;
       }
+
+      // ② 開発リズム（時間帯）の集計
+      const jstHour = (eventDate.getUTCHours() + 9) % 24;
+      const slotIndex = Math.floor(jstHour / 2);
+      timeSlots[slotIndex] += commitCount;
+
+      // ③ リポジトリごとのコミット数の集計
+      const repoName = event.repo.name.split("/")[1] || event.repo.name;
+      repoCommitCounts[repoName] = (repoCommitCounts[repoName] || 0) + commitCount;
+
+      // ④ 一番最新のコミットを特定する
+      if (!latestCommitDate || eventDate > latestCommitDate) {
+        latestCommitDate = eventDate;
+        latestRepoName = repoName;
+      }
     }
   });
+
+  // 一番コミット数が多い「メインプロジェクト」を特定する
+  let mainProjectName = "";
+  let mainProjectCommits = 0;
+
+  Object.entries(repoCommitCounts).forEach(([name, count]) => {
+    if (count > mainProjectCommits) {
+      mainProjectCommits = count;
+      mainProjectName = name;
+    }
+  });
+
+  // 時間帯分析の決定
+  let maxCommitsInSlot = 0;
+  let peakSlotIndex = 11;
+  timeSlots.forEach((count, index) => {
+    if (count > maxCommitsInSlot) {
+      maxCommitsInSlot = count;
+      peakSlotIndex = index;
+    }
+  });
+
+  const startHour = peakSlotIndex * 2;
+  const endHour = startHour + 2;
+  const peakTimeRange = `${String(startHour).padStart(2, "0")}:00〜${String(endHour).padStart(2, "0")}:00`;
+
+  let developerType = "お留守番開発者";
+  let typeColor = "text-gray-500 bg-gray-50 border-gray-200";
+
+  if (totalTrackedCommits > 0) {
+    if (startHour >= 5 && startHour < 11) {
+      developerType = "朝活型開発者";
+      typeColor = "text-orange-600 bg-orange-50 border-orange-200";
+    } else if (startHour >= 11 && startHour < 17) {
+      developerType = "昼間集中型開発者";
+      typeColor = "text-green-600 bg-green-50 border-green-200";
+    } else if (startHour >= 17 && startHour < 22) {
+      developerType = "夕暮れ開発者";
+      typeColor = "text-indigo-600 bg-indigo-50 border-indigo-200";
+    } else {
+      developerType = "夜型開発者";
+      typeColor = "text-purple-600 bg-purple-50 border-purple-200";
+    }
+  }
 
   return (
     <main className="p-8 max-w-2xl mx-auto space-y-8">
@@ -161,7 +227,7 @@ export default async function UserDetailPage({ params }: PageProps) {
       {/* 📊 コミット数統計ダッシュボード */}
       <div className="p-6 border rounded-lg bg-white shadow-sm space-y-4">
         <h2 className="text-xl font-bold text-gray-800">📊 アクティビティ統計</h2>
-        <p className="text-xs text-gray-400">※直近の活動データからコミット数を集計しています</p>
+        <p className="text-xs text-gray-400">※直近 of 活動データからコミット数を集計しています</p>
         
         <div className="grid grid-cols-3 gap-4 text-center">
           <div className="p-3 bg-blue-50/50 rounded-lg border border-blue-100">
@@ -179,6 +245,61 @@ export default async function UserDetailPage({ params }: PageProps) {
         </div>
       </div>
 
+      {/* 🕒 開発リズム分析（活動時間） */}
+      <div className="p-6 border rounded-lg bg-white shadow-sm space-y-4">
+        <h2 className="text-xl font-bold text-gray-800">🕒 開発リズム分析</h2>
+        
+        {totalTrackedCommits === 0 ? (
+          <p className="text-sm text-gray-500">直近のアクティビティデータがないため、分析できません。</p>
+        ) : (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-6 p-4 bg-gray-50 rounded-xl border">
+            <div className="space-y-1 text-center sm:text-left">
+              <span className="text-xs text-gray-400 font-semibold uppercase tracking-wider">最も活動する時間</span>
+              <div className="text-3xl font-mono font-extrabold text-gray-900 tracking-tight">
+                {peakTimeRange}
+              </div>
+            </div>
+            
+            <div className={`px-6 py-3 rounded-full font-bold text-center border shadow-sm text-lg ${typeColor}`}>
+              ✨ {developerType}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 🔥 現在のメインプロジェクト ＆ 最新動向 */}
+      {totalTrackedCommits > 0 && mainProjectName && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* メインプロジェクト */}
+          <div className="p-5 border rounded-lg bg-gradient-to-br from-red-50/40 to-orange-50/20 shadow-sm border-red-100 space-y-3">
+            <div className="flex items-center space-x-2">
+              <span className="text-lg">🔥</span>
+              <h2 className="text-md font-bold text-gray-700">現在のメインプロジェクト</h2>
+            </div>
+            <div className="space-y-1">
+              <div className="text-xl font-extrabold text-red-900 break-all">{mainProjectName}</div>
+              <p className="text-xs text-gray-500">直近データ内: <strong className="text-red-600 font-mono text-sm">{mainProjectCommits}</strong> commits</p>
+            </div>
+          </div>
+
+          {/* 最新のコミット */}
+          <div className="p-5 border rounded-lg bg-gradient-to-br from-blue-50/40 to-indigo-50/20 shadow-sm border-blue-100 space-y-3">
+            <div className="flex items-center space-x-2">
+              <span className="text-lg">✨</span>
+              <h2 className="text-md font-bold text-gray-700">最新の動向</h2>
+            </div>
+            <div className="space-y-1">
+              <div className="text-xl font-extrabold text-blue-900 break-all">{latestRepoName}</div>
+              <p className="text-xs text-gray-500">
+                最新コミット: <strong className="text-blue-600 text-xs">
+                  {latestCommitDate ? `${(latestCommitDate as Date).getMonth() + 1}/${(latestCommitDate as Date).getDate()} ${String((latestCommitDate as Date).getHours()).padStart(2, "0")}:${String((latestCommitDate as Date).getMinutes()).padStart(2, "0")}` : "---"}
+                </strong>
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 🏆 使用言語ランキング */}
       <div className="p-6 border rounded-lg bg-white shadow-sm space-y-4">
         <h2 className="text-xl font-bold text-gray-800">🏆 使用言語ランキング</h2>
@@ -188,7 +309,7 @@ export default async function UserDetailPage({ params }: PageProps) {
         ) : (
           <div className="space-y-5">
             <div className="w-full h-4 rounded-full overflow-hidden flex bg-gray-100">
-              {languageAnalysis.map((item, idx) => {
+              {languageAnalysis.map((item) => {
                 const color = langColors[item.language] || "bg-indigo-400";
                 return (
                   <div 
