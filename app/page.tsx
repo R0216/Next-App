@@ -144,7 +144,7 @@ export default async function Home({ searchParams }: PageProps) {
       {/* ヘッダータイトル */}
       <div className="text-center sm:text-left border-b pb-4 flex justify-between items-end">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">GitHub Analyzer</h1>
+          <h1 className="text-3xl font-bold text-white">GitHub Analyzer</h1>
           <p className="text-sm text-gray-500 mt-1">チーム開発マネジメントダッシュボード</p>
         </div>
         {currentGroup !== "未分類" && (
@@ -160,7 +160,7 @@ export default async function Home({ searchParams }: PageProps) {
         {/* 📂 【左側】グループ作成 ＆ グループ一覧 */}
         <div className="space-y-6 md:border-r md:pr-6 border-gray-200">
           <div className="space-y-2">
-            <h2 className="text-xl font-bold text-gray-800">📂 グループ管理</h2>
+            <h2 className="text-xl font-bold text-white">📂 グループ管理</h2>
             <p className="text-xs text-gray-400">チーム開発の枠組みを作成します</p>
           </div>
 
@@ -171,7 +171,7 @@ export default async function Home({ searchParams }: PageProps) {
               name="groupName"
               placeholder="新しいグループ名（例：A班）"
               required
-              className="px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              className="px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-black"
             />
             <button
               type="submit"
@@ -236,7 +236,7 @@ export default async function Home({ searchParams }: PageProps) {
         <div className="md:col-span-2 space-y-6">
           <div className="space-y-4">
             <div className="space-y-1 border-b pb-2">
-              <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
                 <span>{currentGroup === "未分類" ? "👤 分析対象メンバー (未分類)" : `👥 グループ: ${currentGroup}`}</span>
               </h2>
               <p className="text-xs text-gray-400">このグループに所属しているメンバーの一覧です</p>
@@ -250,7 +250,7 @@ export default async function Home({ searchParams }: PageProps) {
                 name="username"
                 placeholder={`${currentGroup === "未分類" ? "未分類" : currentGroup} に追加する GitHub ユーザー名`}
                 required
-                className="flex-1 px-4 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                className="flex-1 px-4 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-black"
               />
               <button
                 type="submit"
