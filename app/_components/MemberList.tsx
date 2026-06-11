@@ -67,9 +67,12 @@ export default function MemberList({
                     className="flex items-center space-x-4 flex-1 min-w-0 no-underline text-current cursor-pointer"
                   >
                     <Image
-                      src={user.avatar_url}
-                      alt=""
-                      className="w-16 h-16 rounded-full border flex-shrink-0"
+                      src={member.profile.avatar_url}
+                      alt={member.profile.login}
+                      width={40}  // 💡 縦横のサイズを明示的に指定して最適化します
+                      height={40}
+                      className="rounded-full"
+                      unoptimized // 💡 外部（GitHub）のURLをそのまま使うための設定
                     />
                     <div className="space-y-0.5 min-w-0">
                       <h3 className="text-lg font-semibold text-gray-900 truncate group-hover:text-blue-600 transition-colors">

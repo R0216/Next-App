@@ -91,7 +91,14 @@ export default function GroupStats({
               <div key={member.profile.login} className={`flex items-center justify-between p-2 text-sm ${isTop ? "bg-yellow-50/30" : "bg-white"}`}>
                 <div className="flex items-center space-x-3 min-w-0">
                   <span className={`w-6 text-center shrink-0 ${rankColor}`}>{idx + 1}位</span>
-                  <Image src={member.profile.avatar_url} className="w-6 h-6 rounded-full border shrink-0" alt="" />
+                  <Image
+                    src={member.profile.avatar_url}
+                    alt={member.profile.login}
+                    width={32}
+                    height={32}
+                    className="rounded-full"
+                    unoptimized
+                  />
                   <span className="font-semibold text-gray-800 truncate">{member.profile.name || member.profile.login}</span>
                   <span className="text-xs font-mono text-gray-400 truncate">(@{member.profile.login})</span>
                 </div>

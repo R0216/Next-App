@@ -193,10 +193,13 @@ export default async function UserDetailPage({ params }: PageProps) {
       </Link>
 
       <div className="flex items-center space-x-6 p-6 bg-gray-50 rounded-lg shadow-sm border">
-        <Image 
-          src={profileData.avatar_url} 
-          alt={`${profileData.name || username}'s avatar`} 
-          className="w-24 h-24 rounded-full border-2 border-white shadow-sm"
+        <Image
+          src={profileData.avatar_url}
+          alt={username}
+          width={96}
+          height={96}
+          className="rounded-full border"
+          unoptimized
         />
         <div className="space-y-1">
           <h1 className="text-2xl font-bold text-gray-900">{profileData.name || username}</h1>
