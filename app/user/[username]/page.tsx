@@ -1,5 +1,6 @@
 import React from "react";
 import Link from "next/link";
+import Image from "next/image";
 
 interface GitHubProfile {
   name: string;
@@ -192,7 +193,7 @@ export default async function UserDetailPage({ params }: PageProps) {
       </Link>
 
       <div className="flex items-center space-x-6 p-6 bg-gray-50 rounded-lg shadow-sm border">
-        <img 
+        <Image 
           src={profileData.avatar_url} 
           alt={`${profileData.name || username}'s avatar`} 
           className="w-24 h-24 rounded-full border-2 border-white shadow-sm"

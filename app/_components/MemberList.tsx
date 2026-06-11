@@ -1,6 +1,7 @@
 import React from "react";
 import Link from "next/link";
 import DeleteButton from "./DeleteButton";
+import Image from "next/image";
 
 interface Member {
   profile: {
@@ -65,7 +66,7 @@ export default function MemberList({
                     href={`/user/${user.login}`}
                     className="flex items-center space-x-4 flex-1 min-w-0 no-underline text-current cursor-pointer"
                   >
-                    <img
+                    <Image
                       src={user.avatar_url}
                       alt=""
                       className="w-16 h-16 rounded-full border flex-shrink-0"
