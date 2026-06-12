@@ -16,6 +16,7 @@ interface Member {
 interface MemberListProps {
   currentGroup: string;
   validMemberStats: Member[];
+  isGuest: boolean;
   addUserAction: (formData: FormData) => Promise<void>;
   deleteUserAction: (formData: FormData) => Promise<void>;
 }
@@ -69,10 +70,10 @@ export default function MemberList({
                     <Image
                       src={member.profile.avatar_url}
                       alt={member.profile.login}
-                      width={40}  // 💡 縦横のサイズを明示的に指定して最適化します
+                      width={40} 
                       height={40}
                       className="rounded-full"
-                      unoptimized // 💡 外部（GitHub）のURLをそのまま使うための設定
+                      unoptimized
                     />
                     <div className="space-y-0.5 min-w-0">
                       <h3 className="text-lg font-semibold text-gray-900 truncate group-hover:text-blue-600 transition-colors">

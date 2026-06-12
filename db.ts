@@ -4,7 +4,6 @@ import path from "path";
 const dbPath = path.join(process.cwd(), "database.db");
 const db = new Database(dbPath);
 
-
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -26,6 +25,16 @@ db.exec(`
     username TEXT NOT NULL,
     FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
     UNIQUE(group_id, username)
+  );
+
+  /* 🚀 【新設】グループに紐づくリポジトリを保存するテーブル */
+  CREATE TABLE IF NOT EXISTS repositories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    repo_owner TEXT NOT NULL,  -- 例: "facebook"
+    repo_name TEXT NOT NULL,   -- 例: "react"
+    FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+    UNIQUE(group_id, repo_owner, repo_name)
   );
 `);
 
