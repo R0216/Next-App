@@ -57,7 +57,7 @@ export default function GuestView({
       {searchParamsUser ? (
         <div className="space-y-6">
           <div className="border-b pb-2">
-            <h3 className="text-xl font-bold text-gray-800">
+            <h3 className="text-xl font-bold text-white">
               🎯 「{searchParamsUser}」のリアルタイム分析結果
             </h3>
           </div>

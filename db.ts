@@ -27,7 +27,6 @@ db.exec(`
     UNIQUE(group_id, username)
   );
 
-  /* 🚀 【新設】グループに紐づくリポジトリを保存するテーブル */
   CREATE TABLE IF NOT EXISTS repositories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     group_id INTEGER NOT NULL,
