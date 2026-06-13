@@ -3,8 +3,8 @@ import { headers } from "next/headers";
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { eq, and } from "drizzle-orm";
-import { db } from "../src/db/index"; 
-import { users, groups, groupMembers, repositories } from "../src/db/schema";
+import { db } from "../db/index"; 
+import { users, groups, groupMembers, repositories } from "../db/schema";
 
 import GuestView from "./_components/GuestView";
 import DashboardView from "./_components/DashboardView";
@@ -44,10 +44,12 @@ export default async function Home({ searchParams }: PageProps) {
   const reqHeaders: HeadersInit = GITHUB_TOKEN ? { Authorization: `token ${GITHUB_TOKEN}` } : {};
   const headersList = await headers();
   const host = headersList.get("host") || "localhost:3000";
-  const protocol = host.startsWith("localhost") ? "http" : "https";
-  const dynamicRedirectUri = `${protocol}://${host}/api/auth/callback`;
-  const githubAuthUrl = `https://github.com/login/oauth/authorize?client_id=${process.env.GITHUB_CLIENT_ID}&redirect_uri=${encodeURIComponent(dynamicRedirectUri)}&scope=read:user`;
+  const isLocal = process.env.NODE_ENV === "development";
+  const dynamicRedirectUri = isLocal
+    ? "http://localhost:3000/api/auth/callback"
+    : `https://${host}/api/auth/callback`;
 
+  const githubAuthUrl = `https://github.com/login/oauth/authorize?client_id=${process.env.GITHUB_CLIENT_ID}&redirect_uri=${encodeURIComponent(dynamicRedirectUri)}&scope=read:user`;
   const resolvedSearchParams = await searchParams;
   const currentGroup = resolvedSearchParams.group || "未分類";
   const searchUser = resolvedSearchParams.searchUser || "";
