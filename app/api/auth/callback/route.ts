@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import db from "../../../../db"; 
-
+import { cookies } from "next/headers";
+import { db } from "../../../../src/db/index"; 
+import { users } from "../../../../src/db/schema";
+import { eq } from "drizzle-orm";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -11,7 +13,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const tokenRes = await fetch("https://github.com/login/oauth/access_token", {
+    const tokenResponse = await fetch("https://github.com/login/oauth/access_token", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -20,39 +22,59 @@ export async function GET(request: NextRequest) {
       body: JSON.stringify({
         client_id: process.env.GITHUB_CLIENT_ID,
         client_secret: process.env.GITHUB_CLIENT_SECRET,
-        code,
+        code: code,
       }),
     });
-    const tokenData = await tokenRes.json();
+
+    const tokenData = await tokenResponse.json();
     const accessToken = tokenData.access_token;
 
-    const userRes = await fetch("https://api.github.com/user", {
-      headers: { Authorization: `token ${accessToken}` },
+    if (!accessToken) {
+      return NextResponse.redirect(new URL("/", request.url));
+    }
+
+    const userResponse = await fetch("https://api.github.com/user", {
+      headers: {
+        Authorization: `token ${accessToken}`,
+      },
     });
-    const githubUser = await userRes.json();
 
-    const stmt = db.prepare(`
-      INSERT INTO users (github_id, name, avatar_url)
-      VALUES (?, ?, ?)
-      ON CONFLICT(github_id) DO UPDATE SET name=excluded.name, avatar_url=excluded.avatar_url
-    `);
-    stmt.run(githubUser.login, githubUser.name || githubUser.login, githubUser.avatar_url);
+    const githubUserInfo = await userResponse.json();
 
-    const response = NextResponse.redirect(new URL("/", request.url));
-    
-    const cookieOptions = {
+    if (!githubUserInfo || !githubUserInfo.login) {
+      return NextResponse.redirect(new URL("/", request.url));
+    }
+
+    const existingUser = await db.select().from(users).where(eq(users.githubId, githubUserInfo.login));
+
+    if (existingUser.length === 0) {
+      await db.insert(users).values({
+        githubId: githubUserInfo.login,
+        name: githubUserInfo.name || githubUserInfo.login,
+        avatarUrl: githubUserInfo.avatar_url,
+      });
+    }
+
+    const cookieStore = await cookies();
+
+    cookieStore.set("auth_session", githubUserInfo.login, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "lax" as const,
-      maxAge: 60 * 60 * 24 * 7, 
-    };
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 7,
+    });
 
-    response.cookies.set("auth_session", githubUser.login, cookieOptions);
-    response.cookies.set("auth_github_token", accessToken, cookieOptions);
+    cookieStore.set("auth_github_token", accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 7,
+    });
 
-    return response;
+    return NextResponse.redirect(new URL("/", request.url));
+
   } catch (error) {
-    console.error("認証エラー:", error);
+    console.error("Authentication error:", error);
     return NextResponse.redirect(new URL("/", request.url));
   }
 }

@@ -1,7 +1,9 @@
 import React from "react";
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
-import db from "../db"; 
+import { eq, and } from "drizzle-orm";
+import { db } from "../src/db/index"; 
+import { users, groups, groupMembers, repositories } from "../src/db/schema";
 
 import GuestView from "./_components/GuestView";
 import DashboardView from "./_components/DashboardView";
@@ -15,17 +17,12 @@ interface GitHubEvent {
 }
 interface MemberStats { profile: GitHubProfile; monthlyCommits: number; languages: string[]; }
 
-interface GroupDbRow { id: number; name: string; owner_id: number; }
-interface MemberDbRow { username: string; }
-interface UserDbRow { id: number; github_id: string; name: string; avatar_url: string; }
-interface RepoDbRow { id: number; group_id: number; repo_owner: string; repo_name: string; }
-
-interface RepoMeta { stargazers_count: number; forks_count: number; open_issues_count: number; pushed_at: string; }
+interface RepoMeta { stargazers_count: number; forks_count: number; open_issues_count: number; pushed_at: string; created_at: string; }
 interface Contributor { login: string; contributions: number; avatar_url: string; }
 interface CommitInfo { sha: string; commit: { author: { name: string; date: string }; message: string; }; }
 
 interface PageProps {
-  searchParams: Promise<{ group?: string; searchUser?: string; tab?: string; repoIdx?: string }>;
+  searchParams: Promise<{ group?: string; searchUser?: string; tab?: string; repoIdx?: string; sort?: string }>;
 }
 
 function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
@@ -50,31 +47,34 @@ export default async function Home({ searchParams }: PageProps) {
   const searchUser = resolvedSearchParams.searchUser || "";
   const currentTab = (resolvedSearchParams.tab === "project" ? "project" : "member") as "member" | "project";
   const currentRepoIdx = parseInt(resolvedSearchParams.repoIdx || "0", 10);
+  const currentSort = resolvedSearchParams.sort || "created_desc";
 
-  let userInDb: UserDbRow | null = null;
+  let userInDb: typeof users.$inferSelect | null = null;
   let myGroups: { [key: string]: string[] } = { "未分類": [] };
   let dbRepositories: { owner: string; repo: string }[] = [];
 
   if (sessionUser) {
-    userInDb = db.prepare("SELECT * FROM users WHERE github_id = ?").get(sessionUser) as UserDbRow;
+    const existingUsers = await db.select().from(users).where(eq(users.githubId, sessionUser));
+    userInDb = existingUsers[0] || null;
     
     if (userInDb) {
-      const existingGroups = db.prepare("SELECT * FROM groups WHERE owner_id = ?").all(userInDb.id) as GroupDbRow[];
+      const existingGroups = await db.select().from(groups).where(eq(groups.ownerId, userInDb.id));
       if (!existingGroups.some(g => g.name === "未分類")) {
-        db.prepare("INSERT INTO groups (name, owner_id) VALUES ('未分類', ?)").run(userInDb.id);
+        await db.insert(groups).values({ name: "未分類", ownerId: userInDb.id });
       }
 
-      const allGroups = db.prepare("SELECT * FROM groups WHERE owner_id = ?").all(userInDb.id) as GroupDbRow[];
+      const allGroups = await db.select().from(groups).where(eq(groups.ownerId, userInDb.id));
       myGroups = {};
-      allGroups.forEach((g) => {
-        const members = db.prepare("SELECT username FROM group_members WHERE group_id = ?").all(g.id) as MemberDbRow[];
+      
+      for (const g of allGroups) {
+        const members = await db.select().from(groupMembers).where(eq(groupMembers.groupId, g.id));
         myGroups[g.name] = members.map(m => m.username);
-      });
+      }
 
-      const currentGroupRow = db.prepare("SELECT id FROM groups WHERE name = ? AND owner_id = ?").get(currentGroup, userInDb.id) as GroupDbRow;
+      const currentGroupRow = allGroups.find(g => g.name === currentGroup);
       if (currentGroupRow) {
-        const repos = db.prepare("SELECT repo_owner, repo_name FROM repositories WHERE group_id = ?").all(currentGroupRow.id) as RepoDbRow[];
-        dbRepositories = repos.map(r => ({ owner: r.repo_owner, repo: r.repo_name }));
+        const repos = await db.select().from(repositories).where(eq(repositories.groupId, currentGroupRow.id));
+        dbRepositories = repos.map(r => ({ owner: r.repoOwner, repo: r.repoName }));
       }
     }
   }
@@ -84,15 +84,19 @@ export default async function Home({ searchParams }: PageProps) {
     if (!sessionUser || !userInDb) return;
     const repoUrl = (formData.get("repoUrl") as string)?.trim();
     if (!repoUrl) return;
-
     const parsed = parseGitHubUrl(repoUrl);
     if (!parsed) return;
 
-    const group = db.prepare("SELECT id FROM groups WHERE name = ? AND owner_id = ?").get(currentGroup, userInDb.id) as GroupDbRow;
+    const allGroups = await db.select().from(groups).where(eq(groups.ownerId, userInDb.id));
+    const group = allGroups.find(g => g.name === currentGroup);
+    
     if (group) {
       try {
-        db.prepare("INSERT INTO repositories (group_id, repo_owner, repo_name) VALUES (?, ?, ?)")
-          .run(group.id, parsed.owner, parsed.repo);
+        await db.insert(repositories).values({
+          groupId: group.id,
+          repoOwner: parsed.owner,
+          repoName: parsed.repo
+        });
       } catch { /**/ }
     }
     revalidatePath(`/?group=${currentGroup}&tab=project`);
@@ -104,18 +108,25 @@ export default async function Home({ searchParams }: PageProps) {
     const owner = formData.get("owner") as string;
     const repo = formData.get("repo") as string;
 
-    const group = db.prepare("SELECT id FROM groups WHERE name = ? AND owner_id = ?").get(currentGroup, userInDb.id) as GroupDbRow;
+    const allGroups = await db.select().from(groups).where(eq(groups.ownerId, userInDb.id));
+    const group = allGroups.find(g => g.name === currentGroup);
+    
     if (group) {
-      db.prepare("DELETE FROM repositories WHERE group_id = ? AND repo_owner = ? AND repo_name = ?")
-        .run(group.id, owner, repo);
+      await db.delete(repositories).where(
+        and(
+          eq(repositories.groupId, group.id),
+          eq(repositories.repoOwner, owner),
+          eq(repositories.repoName, repo)
+        )
+      );
     }
     revalidatePath(`/?group=${currentGroup}&tab=project`);
   }
 
-  async function createGroup(formData: FormData) { "use server"; if (!sessionUser || !userInDb) return; const name = (formData.get("groupName") as string)?.trim(); if (!name) return; try { db.prepare("INSERT INTO groups (name, owner_id) VALUES (?, ?)").run(name, userInDb.id); } catch { /**/ } revalidatePath("/"); }
-  async function deleteGroup(formData: FormData) { "use server"; if (!sessionUser || !userInDb) return; const name = formData.get("groupName") as string; if (!name || name === "未分類") return; db.prepare("DELETE FROM groups WHERE name = ? AND owner_id = ?").run(name, userInDb.id); revalidatePath("/"); }
-  async function addUser(formData: FormData) { "use server"; if (!sessionUser || !userInDb) return; const username = (formData.get("username") as string)?.trim(); const targetGroupName = formData.get("targetGroup") as string || "未分類"; if (!username) return; const group = db.prepare("SELECT id FROM groups WHERE name = ? AND owner_id = ?").get(targetGroupName, userInDb.id) as GroupDbRow; if (group) { try { db.prepare("INSERT INTO group_members (group_id, username) VALUES (?, ?)").run(group.id, username); } catch { /**/ } } revalidatePath("/"); }
-  async function deleteUser(formData: FormData) { "use server"; if (!sessionUser || !userInDb) return; const username = formData.get("username") as string; const targetGroupName = formData.get("targetGroup") as string || "未分類"; const group = db.prepare("SELECT id FROM groups WHERE name = ? AND owner_id = ?").get(targetGroupName, userInDb.id) as GroupDbRow; if (group) { db.prepare("DELETE FROM group_members WHERE group_id = ? AND username = ?").run(group.id, username); } revalidatePath("/"); }
+  async function createGroup(formData: FormData) { "use server"; if (!sessionUser || !userInDb) return; const name = (formData.get("groupName") as string)?.trim(); if (!name) return; try { await db.insert(groups).values({ name, ownerId: userInDb.id }); } catch { /**/ } revalidatePath("/"); }
+  async function deleteGroup(formData: FormData) { "use server"; if (!sessionUser || !userInDb) return; const name = formData.get("groupName") as string; if (!name || name === "未分類") return; await db.delete(groups).where(and(eq(groups.name, name), eq(groups.ownerId, userInDb.id))); revalidatePath("/"); }
+  async function addUser(formData: FormData) { "use server"; if (!sessionUser || !userInDb) return; const username = (formData.get("username") as string)?.trim(); const targetGroupName = formData.get("targetGroup") as string || "未分類"; if (!username) return; const allGroups = await db.select().from(groups).where(eq(groups.ownerId, userInDb.id)); const group = allGroups.find(g => g.name === targetGroupName); if (group) { try { await db.insert(groupMembers).values({ groupId: group.id, username }); } catch { /**/ } } revalidatePath("/"); }
+  async function deleteUser(formData: FormData) { "use server"; if (!sessionUser || !userInDb) return; const username = formData.get("username") as string; const targetGroupName = formData.get("targetGroup") as string || "未分類"; const allGroups = await db.select().from(groups).where(eq(groups.ownerId, userInDb.id)); const group = allGroups.find(g => g.name === targetGroupName); if (group) { await db.delete(groupMembers).where(and(eq(groupMembers.groupId, group.id), eq(groupMembers.username, username))); } revalidatePath("/"); }
 
   const displayUsernames = searchUser ? [searchUser] : (sessionUser ? (myGroups[currentGroup] || []) : []);
   const memberStatsPromises = displayUsernames.map(async (username) => {
@@ -141,25 +152,52 @@ export default async function Home({ searchParams }: PageProps) {
   validMemberStats.forEach((m) => { m.languages.forEach((l) => { groupLanguageCounts[l] = (groupLanguageCounts[l] || 0) + 1; groupTotalLanguages++; }); });
   const groupLanguageAnalysis = Object.entries(groupLanguageCounts).map(([language, count]) => ({ language, percentage: Math.round((count / groupTotalLanguages) * 100) || 0 })).sort((a, b) => b.percentage - a.percentage);
 
+  let sortedRepositories = dbRepositories.map(r => ({ ...r, created_at: "1970-01-01", stargazers_count: 0 }));
   let activeProjectData = null;
-  const targetRepo = dbRepositories[currentRepoIdx];
-  if (currentTab === "project" && targetRepo) {
-    try {
-      const [metaRes, contribRes, commitsRes] = await Promise.all([
-        fetch(`https://api.github.com/repos/${targetRepo.owner}/${targetRepo.repo}`, { cache: "no-store", headers: reqHeaders }),
-        fetch(`https://api.github.com/repos/${targetRepo.owner}/${targetRepo.repo}/contributors?per_page=10`, { cache: "no-store", headers: reqHeaders }),
-        fetch(`https://api.github.com/repos/${targetRepo.owner}/${targetRepo.repo}/commits?per_page=15`, { cache: "no-store", headers: reqHeaders }),
-      ]);
 
-      activeProjectData = {
-        repoOwner: targetRepo.owner,
-        repoName: targetRepo.repo,
-        meta: metaRes.ok ? (await metaRes.json()) as RepoMeta : null,
-        contributors: contribRes.ok ? (await contribRes.json()) as Contributor[] : [],
-        commits: commitsRes.ok ? (await commitsRes.json()) as CommitInfo[] : [],
-      };
+  if (dbRepositories.length > 0) {
+    try {
+      const metaPromises = dbRepositories.map(async (repo) => {
+        try {
+          const res = await fetch(`https://api.github.com/repos/${repo.owner}/${repo.repo}`, { cache: "no-store", headers: reqHeaders });
+          if (res.ok) {
+            const data = await res.json();
+            return { ...repo, created_at: data.created_at, stargazers_count: data.stargazers_count };
+          }
+        } catch { /**/ }
+        return { ...repo, created_at: "1970-01-01", stargazers_count: 0 };
+      });
+      
+      const reposWithMeta = await Promise.all(metaPromises);
+
+      reposWithMeta.sort((a, b) => {
+        if (currentSort === "created_desc") return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        if (currentSort === "created_asc") return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        if (currentSort === "stars_desc") return b.stargazers_count - a.stargazers_count;
+        if (currentSort === "stars_asc") return a.stargazers_count - b.stargazers_count;
+        return 0;
+      });
+
+      sortedRepositories = reposWithMeta;
+
+      const targetRepo = sortedRepositories[currentRepoIdx];
+      if (currentTab === "project" && targetRepo) {
+        const [metaRes, contribRes, commitsRes] = await Promise.all([
+          fetch(`https://api.github.com/repos/${targetRepo.owner}/${targetRepo.repo}`, { cache: "no-store", headers: reqHeaders }),
+          fetch(`https://api.github.com/repos/${targetRepo.owner}/${targetRepo.repo}/contributors?per_page=10`, { cache: "no-store", headers: reqHeaders }),
+          fetch(`https://api.github.com/repos/${targetRepo.owner}/${targetRepo.repo}/commits?per_page=15`, { cache: "no-store", headers: reqHeaders }),
+        ]);
+
+        activeProjectData = {
+          repoOwner: targetRepo.owner,
+          repoName: targetRepo.repo,
+          meta: metaRes.ok ? (await metaRes.json()) as RepoMeta : null,
+          contributors: contribRes.ok ? (await contribRes.json()) as Contributor[] : [],
+          commits: commitsRes.ok ? (await commitsRes.json()) as CommitInfo[] : [],
+        };
+      }
     } catch (e) {
-      console.error("リポジトリデータの取得失敗:", e);
+      console.error("プロジェクトソートエラー:", e);
     }
   }
 
@@ -194,9 +232,9 @@ export default async function Home({ searchParams }: PageProps) {
           addUser={addUser}
           deleteUser={deleteUser}
           searchParamsUser={searchUser}
-
+          
           currentTab={currentTab}
-          repositories={dbRepositories}
+          repositories={sortedRepositories} 
           currentRepoIdx={currentRepoIdx}
           projectData={activeProjectData}
           addRepository={addRepository}
